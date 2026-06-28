@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>阿萬動物樂園</title>
+    <link rel="icon" href="assets/icon.png" type="image/png">
+    <link rel="apple-touch-icon" href="assets/icon.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#5bb8e8">
+
+    <meta property="og:title" content="阿萬動物樂園">
+    <meta property="og:description" content="動物保育主題三消益智遊戲，挑戰衛教知識獲得更多時間！">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://example.com/zookeeper/">
+    <meta property="og:image" content="https://example.com/zookeeper/assets/banner.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="阿萬動物樂園">
+    <meta name="twitter:description" content="動物保育主題三消益智遊戲，挑戰衛教知識獲得更多時間！">
+    <meta name="twitter:image" content="https://example.com/zookeeper/assets/banner.png">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div class="loader"></div>
+        <h2 style="color:var(--color-text)">載入中...</h2>
+        <p id="loading-progress" style="color:var(--color-text-muted)">0%</p>
+    </div>
+
+    <div id="main-wrapper">
+        <div id="game-container">
+            <!-- Game Over Header -->
+            <div id="game-header" class="hidden">
+                <h1 data-i18n="gameOver">Game Over</h1>
+                <p style="color:white;margin-top:4px">
+                    <span data-i18n="score">分數</span>：<span id="final-score">0</span>
+                </p>
+            </div>
+
+            <!-- Canvas injected by script.js -->
+
+            <!-- In-Game UI Layer -->
+            <div id="ui-layer">
+                <div id="score-board">
+                    <span data-i18n="score">分數</span>：<span id="score">0</span>
+                </div>
+                <div class="top-controls">
+                    <button id="settings-btn" title="設定">⚙️</button>
+                    <button id="retry-btn-top" title="重來">↻</button>
+                </div>
+            </div>
+
+            <!-- Game Footer (shown on game over) -->
+            <div id="game-footer" class="hidden">
+                <button id="retry-btn" data-i18n="retry">再玩一次</button>
+                <button id="share-btn" data-i18n="share">分享</button>
+                <button id="screenshot-btn" data-i18n="saveImg">儲存圖片</button>
+                <div class="support-links-mini">
+                    <a href="https://twitter.com/" target="_blank">X (Twitter)</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="hidden">
+            <div class="modal-content">
+                <h2 data-i18n="settingsTitle">設定</h2>
+
+                <!-- Language -->
+                <div class="setting-item lang-select-row">
+                    <label data-i18n="langSection">語言</label>
+                    <select id="lang-select">
+                        <option value="auto">Auto</option>
+                        <option value="zh">繁中</option>
+                        <option value="en">EN</option>
+                        <option value="ja">日本語</option>
+                    </select>
+                </div>
+
+                <!-- Sound -->
+                <div class="settings-section">
+                    <div class="settings-section-title" data-i18n="soundSection">音效</div>
+                    <div class="setting-item">
+                        <label data-i18n="bgmVolume">BGM 音量</label>
+                        <input type="range" id="bgm-volume" min="0" max="100" value="50">
+                    </div>
+                    <div class="setting-item">
+                        <label data-i18n="sfxVolume">SFX 音量</label>
+                        <input type="range" id="sfx-volume" min="0" max="100" value="50">
+                    </div>
+                    <div class="setting-item toggle-setting">
+                        <label data-i18n="autoMute">自動靜音</label>
+                        <input type="checkbox" id="auto-mute-toggle" checked>
+                    </div>
+                </div>
+
+                <!-- Health Quiz Challenge Toggle -->
+                <div class="settings-section">
+                    <div class="settings-section-title" data-i18n="challengeSection">衛教挑戰</div>
+                    <div class="setting-item toggle-setting">
+                        <label data-i18n="quizChallenge">開啟衛教挑戰</label>
+                        <input type="checkbox" id="quiz-toggle" checked>
+                    </div>
+                    <div style="font-size:11px;color:var(--color-text-muted);padding:0 10px;text-align:left;margin-top:4px">
+                        關閉後 Fever 固定5秒，直接觸發不跳題目
+                    </div>
+                </div>
+
+                <!-- Save Data -->
+                <div class="settings-section">
+                    <div class="settings-section-title" data-i18n="saveSection">存檔</div>
+                    <div class="save-btns">
+                        <button id="download-save-btn" class="settings-action-btn" data-i18n="downloadSave">下載存檔</button>
+                        <input type="file" id="upload-save-input" accept=".json" style="display:none">
+                        <button id="upload-save-btn" class="settings-action-btn" data-i18n="uploadSave">讀取存檔</button>
+                    </div>
+                </div>
+
+                <!-- Credits -->
+                <div class="setting-item support-section">
+                    <p>製作　Nika</p>
+                </div>
+
+                <button id="close-settings" data-i18n="closeSettings">關閉</button>
+            </div>
+        </div>
+
+        <!-- Confirm Reset Modal -->
+        <div id="confirm-reset-modal" class="hidden">
+            <div class="confirm-box">
+                <p data-i18n="confirmTitle">確定要重新開始嗎？</p>
+                <div class="confirm-btns">
+                    <button id="confirm-cancel-btn" data-i18n="confirmCancel">繼續</button>
+                    <button id="confirm-ok-btn" data-i18n="confirmOk">重來</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game End Modal -->
+        <div id="end-modal" class="hidden game-modal">
+            <div class="modal-box end-box" id="end-box">
+                <button class="close-modal-btn" id="close-end">✕</button>
+            </div>
+        </div>
+
+        <!-- Health Quiz Challenge Modal -->
+        <div id="challenge-modal" class="hidden">
+            <div class="challenge-box">
+                <div class="ch-header">
+                    <div class="ch-title" data-i18n="challengeSection">衛教挑戰</div>
+                    <div id="ch-timer-wrap">
+                        <div id="ch-timer-fill"></div>
+                        <span id="ch-timer-text">15</span>
+                    </div>
+                </div>
+                <div id="ch-progress">0 / 3</div>
+                <p id="ch-question"></p>
+                <div id="ch-options">
+                    <button class="ch-opt" data-idx="0"></button>
+                    <button class="ch-opt" data-idx="1"></button>
+                    <button class="ch-opt" data-idx="2"></button>
+                </div>
+                <div id="ch-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="quiz.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

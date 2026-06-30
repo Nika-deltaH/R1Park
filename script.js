@@ -73,7 +73,14 @@ const STRINGS = {
         startMsg: '點擊開始',
         quizChallenge: '開啟衛教挑戰', challengeSection: '衛教挑戰',
         startGame: '開始遊戲', loadGame: '載入進度',
-        library: '圖鑑', quizBank: '題庫',
+        library: '動物圖鑑', quizBank: '衛教題庫',
+        subtitle: '拯救過勞的阿萬園長',
+        footerLine1: '拖曳動物朋友們的位置，讓他們三隻以上相連',
+        footerLine2: '幫助阿萬園長恢復動物園的秩序',
+        soundPromptTitle: '開啟聲音？', soundYes: '是', soundNo: '否',
+        quizHint: '關閉後 Fever Time 固定為5秒',
+        contactNIKA: '聯絡 NIKA', supportNIKA: '贊助 NIKA',
+        creditsLabel: '製作‧美術',
     },
     en: {
         score: 'Score', gameOver: 'Game Over', retry: 'Play Again', share: 'Share', saveImg: 'Save Image',
@@ -84,18 +91,32 @@ const STRINGS = {
         startMsg: 'Tap to Start',
         quizChallenge: 'Health Challenge', challengeSection: 'Health Challenge',
         startGame: 'Start Game', loadGame: 'Load Save',
-        library: 'Library', quizBank: 'Quiz Bank',
+        library: 'Library', quizBank: 'Quiz List',
+        subtitle: 'Save R1, the Overworked Zookeeper',
+        footerLine1: 'Drag animals to connect 3 or more of the same kind',
+        footerLine2: 'Help Zookeeper R1 restore order to the zoo',
+        soundPromptTitle: 'Enable Sound?', soundYes: 'Yes', soundNo: 'No',
+        quizHint: 'Disabled: Fever Time is fixed at 5 seconds',
+        contactNIKA: 'Contact', supportNIKA: 'Support',
+        creditsLabel: 'Design & Art',
     },
     ja: {
         score: 'スコア', gameOver: 'ゲームオーバー', retry: 'もう一度', share: 'シェア', saveImg: '画像保存',
         settingsTitle: '設定', soundSection: 'サウンド', bgmVolume: 'BGM 音量', sfxVolume: 'SFX 音量',
-        autoMute: '自動ミュート', saveSection: 'セーブ', downloadSave: '保存', uploadSave: '読込',
+        autoMute: '非表示時ミュート', saveSection: 'セーブデータ', downloadSave: '保存', uploadSave: '読込',
         langSection: '言語', closeSettings: '閉じる',
         confirmTitle: 'ゲームをリスタートしますか？', confirmCancel: 'つづける', confirmOk: 'リスタート',
         startMsg: 'タップしてスタート',
-        quizChallenge: '健康チャレンジ', challengeSection: '健康チャレンジ',
+        quizChallenge: 'クイズチャレンジ', challengeSection: 'クイズチャレンジ',
         startGame: 'スタート', loadGame: 'ロード',
-        library: '図鑑', quizBank: 'クイズ',
+        library: '動物図鑑', quizBank: 'クイズ一覧',
+        subtitle: '園長R1を過労から救え',
+        footerLine1: '同じ動物を3匹以上つなげて',
+        footerLine2: '動物園に平和を取り戻そう',
+        soundPromptTitle: 'サウンドを有効にする？', soundYes: 'はい', soundNo: 'いいえ',
+        quizHint: 'オフ時 Fever Timeは5秒固定',
+        contactNIKA: 'お問い合わせ', supportNIKA: 'NIKAを応援',
+        creditsLabel: '制作・アート',
     },
 };
 
@@ -179,7 +200,8 @@ let gameOverButtons = [];
 // Challenge
 let isChallengeEnabled  = true;
 let challengeActive     = false;
-let challengeQuestions  = [];   // 3 QUIZ_DATA items for this round
+let challengeQuestions      = [];   // 3 QUIZ_DATA items for this round
+let challengeShuffledOrders = [];   // shuffled option order per question [[0,2,1], ...]
 let challengeIdx        = 0;
 let challengeTimer      = 0;
 let challengeTotalTime  = 15;
@@ -197,11 +219,29 @@ let pointerId    = null;
 let floatingTexts = [];
 let particles     = [];
 
+// Start screen animated animals
+let decoAnimals = [];
+
 // Save-related
 let hasSavedGame     = false;
 let hasPlayedBefore  = false;
 let seenAnimalTypes  = [];
 let seenQuizIds      = [];
+let quizBankScrollY  = 0;   // scroll offset for 衛教題庫 screen
+let quizBankMaxScroll = 0;  // updated each render frame
+
+// Animal EXP / level (persisted cross-game)
+let animalExp = {};   // { animalIdx: totalExp }
+
+// Quiz priority tracking (persisted cross-game)
+let quizWrongIds          = [];   // IDs answered wrong at least once
+let quizCorrectAfterWrong = {};   // { id: countOfCorrectAnswersAfterFirstWrong }
+
+// Fever hint (arrow shown first time fever bar fills)
+let feverHintShown = false;
+
+// Level-up effects queued during quiz challenge (show after modal closes)
+let pendingLevelUpEffects = [];
 
 // Start screen buttons (hit areas)
 let startButtons = [];
@@ -238,8 +278,12 @@ const challengeModal = document.getElementById('challenge-modal');
 // ============================================================
 // AUDIO SYSTEM
 // ============================================================
-const bgm = new Audio('assets/bgm.mp3');
+const bgm         = new Audio('assets/HappyZoo_loop.mp3');
 bgm.loop = true;
+const feverBgm    = new Audio('assets/ZooFever_loop.mp3');
+feverBgm.loop     = true;
+const gameOverBgm = new Audio('assets/GameOver.mp3');
+gameOverBgm.loop  = false;
 
 let audioCtx = null, bgmGainNode = null, sfxGainNode = null;
 let bgmVolume = 0.5, sfxVolume = 0.5;
@@ -256,10 +300,16 @@ function initAudioContext() {
         sfxGainNode.connect(audioCtx.destination);
         bgmGainNode = audioCtx.createGain();
         bgmGainNode.gain.value = bgmVolume;
-        const src = audioCtx.createMediaElementSource(bgm);
-        src.connect(bgmGainNode);
+        const bgmSrc = audioCtx.createMediaElementSource(bgm);
+        bgmSrc.connect(bgmGainNode);
+        const feverSrc = audioCtx.createMediaElementSource(feverBgm);
+        feverSrc.connect(bgmGainNode);
+        const gameOverSrc = audioCtx.createMediaElementSource(gameOverBgm);
+        gameOverSrc.connect(bgmGainNode);
         bgmGainNode.connect(audioCtx.destination);
         if (audioCtx.state === 'suspended') audioCtx.resume();
+        // 第一次使用者互動後立即播放 BGM（開始畫面也有音樂）
+        if (bgmVolume > 0) bgm.play().catch(() => {});
     } catch (e) { console.warn('Web Audio API unavailable', e); }
 }
 
@@ -276,7 +326,7 @@ function playSynth(type, freq, duration, gainVal, freqEnd) {
         if (freqEnd !== undefined) {
             osc.frequency.linearRampToValueAtTime(freqEnd, audioCtx.currentTime + duration);
         }
-        gain.gain.setValueAtTime(gainVal * sfxVolume, audioCtx.currentTime);
+        gain.gain.setValueAtTime(gainVal, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
         osc.connect(gain);
         gain.connect(sfxGainNode || audioCtx.destination);
@@ -286,28 +336,55 @@ function playSynth(type, freq, duration, gainVal, freqEnd) {
 }
 
 function playMatchSound(combo) {
-    // Ding: rising pitch with combo level
+    // All combos: two-note ascending ding (combo 1 = lower pitch, higher combos rise further)
     const freq = 440 * Math.pow(1.3, Math.min(combo - 1, 6));
-    playSynth('sine', freq, 0.25, 0.35);
-    if (combo >= 2) setTimeout(() => playSynth('sine', freq * 1.25, 0.2, 0.25), 80);
-    if (combo >= 3) setTimeout(() => playSynth('sine', freq * 1.5,  0.18, 0.2), 160);
+    playSynth('sine', freq, 0.25, 0.75);
+    setTimeout(() => playSynth('sine', freq * 1.25, 0.2, 0.55), 80);
+    if (combo >= 3) setTimeout(() => playSynth('sine', freq * 1.5, 0.18, 0.45), 160);
 }
 
 function playSwapSound() {
-    playSynth('triangle', 600, 0.08, 0.2);
+    playSynth('triangle', 600, 0.08, 0.45);
 }
 
 function playSwapBackSound() {
-    playSynth('triangle', 400, 0.08, 0.15);
+    playSynth('triangle', 400, 0.08, 0.35);
 }
 
 function playFailSound() {
-    playSynth('sawtooth', 220, 0.35, 0.2, 140);
+    playSynth('sawtooth', 220, 0.35, 0.45, 140);
+}
+
+function playGameOverExplosion() {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    // White noise burst
+    const bufLen = Math.floor(audioCtx.sampleRate * 0.6);
+    const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.07));
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    const ng = audioCtx.createGain();
+    ng.gain.setValueAtTime(0.9, now);
+    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    noise.connect(ng); ng.connect(sfxGainNode);
+    noise.start(now);
+    // Low thud oscillator
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(110, now);
+    osc.frequency.exponentialRampToValueAtTime(28, now + 0.45);
+    const og = audioCtx.createGain();
+    og.gain.setValueAtTime(0.7, now);
+    og.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+    osc.connect(og); og.connect(sfxGainNode);
+    osc.start(now); osc.stop(now + 0.45);
 }
 
 function playFeverSound() {
     const notes = [523, 659, 784]; // C5 E5 G5
-    notes.forEach((f, i) => setTimeout(() => playSynth('sine', f, 0.3, 0.4), i * 100));
+    notes.forEach((f, i) => setTimeout(() => playSynth('sine', f, 0.3, 0.8), i * 100));
 }
 
 function playFeverReadySound() {
@@ -322,11 +399,58 @@ function playFeverReadySound() {
         osc.frequency.value = freq;
         const t = audioCtx.currentTime + i * 0.09;
         g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(0.28, t + 0.04);
+        g.gain.linearRampToValueAtTime(0.6, t + 0.04);
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
         osc.start(t);
         osc.stop(t + 0.38);
     });
+}
+
+function playQuizCorrectSound() {
+    playSynth('sine', 880, 0.12, 0.65);
+    setTimeout(() => playSynth('sine', 1318, 0.22, 0.55), 110);
+}
+
+function playQuizWrongSound() {
+    playSynth('square', 200, 0.12, 0.38, 140);
+    setTimeout(() => playSynth('sawtooth', 150, 0.18, 0.32, 100), 110);
+}
+
+function playLevelUpSound() {
+    if (!audioCtx || sfxVolume <= 0) return;
+    try {
+        // 充能掃頻 + 上行音階 C5 E5 G5 C6（boost 升級感）
+        const now = audioCtx.currentTime;
+
+        // 掃頻噪音：低→高 glide（power-up 衝刺感）
+        const sweep = audioCtx.createOscillator();
+        const sweepG = audioCtx.createGain();
+        sweep.type = 'sawtooth';
+        sweep.frequency.setValueAtTime(220, now);
+        sweep.frequency.exponentialRampToValueAtTime(880, now + 0.18);
+        sweepG.gain.setValueAtTime(0.4, now);
+        sweepG.gain.exponentialRampToValueAtTime(0.001, now + 0.20);
+        sweep.connect(sweepG);
+        sweepG.connect(sfxGainNode);
+        sweep.start(now);
+        sweep.stop(now + 0.21);
+
+        // 上行琶音 C5 E5 G5 C6
+        [[523, 0.15], [659, 0.24], [784, 0.32], [1047, 0.40]].forEach(([freq, delay]) => {
+            const osc = audioCtx.createOscillator();
+            const g   = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            const t = now + delay;
+            const dur = freq === 1047 ? 0.50 : 0.14;
+            g.gain.setValueAtTime(0.65, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+            osc.connect(g);
+            g.connect(sfxGainNode);
+            osc.start(t);
+            osc.stop(t + dur + 0.01);
+        });
+    } catch (e) {}
 }
 
 // ============================================================
@@ -339,6 +463,7 @@ const IMAGES_TO_LOAD = [
         `assets/animal_b_${String(i + 1).padStart(2, '0')}.png`),
     'assets/hovering.png',
     'assets/selected.png',
+    'assets/R1.png',
 ];
 const ASSET_IMAGES = {};
 
@@ -369,6 +494,7 @@ function getCurrentGameState() {
         seenQuizIds: [...seenQuizIds],
         seenAnimalTypes: [...seenAnimalTypes],
         hasPlayedBefore,
+        animalExp: { ...animalExp },
     };
 }
 
@@ -385,6 +511,7 @@ function applyGameState(state) {
     seenQuizIds = state.seenQuizIds || [];
     seenAnimalTypes = state.seenAnimalTypes || [];
     hasPlayedBefore = state.hasPlayedBefore ?? false;
+    if (state.animalExp) Object.assign(animalExp, state.animalExp);
     syncQuizToggle();
     rebuildSprites();
     gameScreen = 'playing';
@@ -421,10 +548,14 @@ function checkSavedGame() {
         const pRaw = localStorage.getItem(SAVE_KEY + '_progress');
         if (pRaw) {
             const p = JSON.parse(pRaw);
-            hasPlayedBefore = p.hasPlayedBefore ?? false;
-            seenAnimalTypes = p.seenAnimalTypes || [];
-            seenQuizIds     = p.seenQuizIds     || [];
+            hasPlayedBefore   = p.hasPlayedBefore ?? false;
+            seenAnimalTypes   = p.seenAnimalTypes || [];
+            seenQuizIds       = p.seenQuizIds     || [];
             isChallengeEnabled = p.isChallengeEnabled ?? true;
+            if (p.animalExp) Object.assign(animalExp, p.animalExp);
+            quizWrongIds          = p.quizWrongIds          || [];
+            quizCorrectAfterWrong = p.quizCorrectAfterWrong || {};
+            feverHintShown        = p.feverHintShown        ?? false;
         }
     } catch {}
 }
@@ -451,6 +582,25 @@ function downloadSave() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// ANIMAL LEVEL HELPERS
+// ============================================================
+// Cumulative EXP required to REACH level `lv` (lv1→2 costs 100, lv2→3 costs 200…)
+function expForLevel(lv) {
+    return lv <= 1 ? 0 : 100 * (lv - 1) * lv / 2;
+}
+function getAnimalLevel(animalIdx) {
+    const exp = animalExp[animalIdx] || 0;
+    for (let lv = 10; lv >= 2; lv--) {
+        if (exp >= expForLevel(lv)) return lv;
+    }
+    return 1;
+}
+// Score multiplier from level: Lv1=1.00, Lv2=1.05, Lv3=1.10 …
+function lvScoreMult(animalIdx) {
+    return 1 + 0.05 * (getAnimalLevel(animalIdx) - 1);
 }
 
 // ============================================================
@@ -712,11 +862,31 @@ function resolveMatches(matched) {
     let centerR = 0, centerC = 0, cellCount = 0;
 
     groups.forEach(g => {
+        const logicalType = board[g.cells[0].r][g.cells[0].c];
+        const animalIdx   = selectedTypes[logicalType];
+
+        // EXP: +1 per eliminated tile; detect level-up
+        const prevLv = getAnimalLevel(animalIdx);
+        animalExp[animalIdx] = (animalExp[animalIdx] || 0) + g.size;
+        const newLv  = getAnimalLevel(animalIdx);
+        if (newLv > prevLv) {
+            const sumR = g.cells.reduce((s, { r }) => s + r, 0);
+            const sumC = g.cells.reduce((s, { c }) => s + c, 0);
+            const fx = BOARD_X + (sumC / g.cells.length + 0.5) * CELL_SIZE;
+            const fy = BOARD_Y + (sumR / g.cells.length + 0.5) * CELL_SIZE;
+            const lvStr = newLv >= 10 ? 'MAX' : `Lv.${newLv}`;
+            floatingTexts.push({ text: `↑${lvStr} UP↑`, x: fx, y: fy, vy: -55, alpha: 1, scale: 1.7, color: '#ffd700', life: 2.2, fadeStart: 1.0 });
+            playLevelUpSound();
+        }
+
         const baseScore = g.size >= 5 ? MATCH_SCORES[5]
                         : g.size === 4 ? MATCH_SCORES[4]
                         : MATCH_SCORES[3];
         const mult   = Math.pow(COMBO_BASE, comboCount - 1);
-        let earned   = Math.floor(baseScore * mult / 10) * 10;
+        // Level multiplier (Lv1=×1.00, Lv2=×1.05 …)
+        const lmult  = lvScoreMult(animalIdx);
+        // Round UP to nearest 10 (changed from floor)
+        let earned   = Math.ceil(baseScore * mult * lmult / 10) * 10;
         if (isFeverTime) earned *= 2;
         totalEarned += earned;
 
@@ -756,8 +926,8 @@ function resolveMatches(matched) {
         }
     }
 
-    // Time bonus per group, capped at MAX_TIME
-    const timeBonus = TIME_BONUS_PER_GROUP * groups.length;
+    // Time bonus: scales with combo count (combo 1×, combo 2×2, combo 3×3 …)
+    const timeBonus = TIME_BONUS_PER_GROUP * groups.length * comboCount;
     timeLeft = Math.min(MAX_TIME, timeLeft + timeBonus);
     const timeBonusStr = Number.isInteger(timeBonus) ? `+${timeBonus}s` : `+${timeBonus.toFixed(1)}s`;
     spawnFloatingText(timeBonusStr, TIMER_X + TIMER_W / 2, TIMER_Y - 6, '#4caf50', 1.2);
@@ -788,7 +958,6 @@ function startSwap(r1, c1, r2, c2) {
     swapProgress = 0;
     phase        = PHASE.SWAPPING;
     phaseTimer   = 0;
-    playSwapSound();
     [board[r1][c1], board[r2][c2]] = [board[r2][c2], board[r1][c1]];
 }
 
@@ -951,7 +1120,8 @@ function updateFloatingTexts(dt) {
         const f = floatingTexts[i];
         f.life -= dt / 1000;
         f.y    += f.vy * dt / 1000;
-        f.alpha = Math.max(0, f.life / 1.2);
+        const fadeWindow = f.fadeStart ?? 1.2;
+        f.alpha = Math.max(0, Math.min(1, f.life / fadeWindow));
         if (f.life <= 0) floatingTexts.splice(i, 1);
     }
 }
@@ -987,11 +1157,16 @@ function activateFeverTime() {
     isFeverTime       = true;
     feverTimeLeft     = pendingFeverSecs;
     feverMaxTime      = pendingFeverSecs;
+    bgm.pause();
+    if (bgmVolume > 0) { feverBgm.currentTime = 0; feverBgm.play().catch(() => {}); }
 }
 
 function endFeverTime() {
     isFeverTime   = false;
     feverTimeLeft = 0;
+    feverBgm.pause();
+    feverBgm.currentTime = 0;
+    if (bgmVolume > 0) bgm.play().catch(() => {});
 }
 
 // ============================================================
@@ -1009,14 +1184,62 @@ function startChallenge() {
     challengeCorrect = 0;
     challengeTimer  = challengeTotalTime;
     challengeWaiting = false;
+    pendingLevelUpEffects = [];
 
-    // Pick 3 random questions
-    const pool = [...QUIZ_DATA];
-    for (let i = pool.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
+    // Mark first-fever hint as shown (arrow disappears after first tap)
+    if (!feverHintShown) {
+        feverHintShown = true;
+        try {
+            const pRaw = localStorage.getItem(SAVE_KEY + '_progress') || '{}';
+            const p = JSON.parse(pRaw);
+            p.feverHintShown = true;
+            localStorage.setItem(SAVE_KEY + '_progress', JSON.stringify(p));
+        } catch {}
     }
-    challengeQuestions = pool.slice(0, 3);
+
+    // Weighted question selection: unseen + unatoned-wrong questions get weight 5
+    const isPriority = q =>
+        !seenQuizIds.includes(q.id) ||
+        (quizWrongIds.includes(q.id) && (quizCorrectAfterWrong[q.id] || 0) < 2);
+    const weighted = [];
+    QUIZ_DATA.forEach(q => {
+        const w = isPriority(q) ? 5 : 1;
+        for (let i = 0; i < w; i++) weighted.push(q);
+    });
+    // Shuffle weighted pool
+    for (let i = weighted.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [weighted[i], weighted[j]] = [weighted[j], weighted[i]];
+    }
+    // Pick 3 unique questions
+    challengeQuestions = [];
+    const pickedIds = new Set();
+    for (const q of weighted) {
+        if (!pickedIds.has(q.id)) {
+            pickedIds.add(q.id);
+            challengeQuestions.push(q);
+            if (challengeQuestions.length === 3) break;
+        }
+    }
+    // Fallback if not enough unique questions
+    if (challengeQuestions.length < 3) {
+        const remaining = QUIZ_DATA.filter(q => !pickedIds.has(q.id));
+        for (let i = remaining.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+        }
+        challengeQuestions.push(...remaining.slice(0, 3 - challengeQuestions.length));
+    }
+
+    // Shuffle option order for each question independently
+    challengeShuffledOrders = challengeQuestions.map(() => {
+        const order = [0, 1, 2];
+        for (let i = 2; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [order[i], order[j]] = [order[j], order[i]];
+        }
+        return order;
+    });
 
     challengeModal.classList.remove('hidden');
     showChallengeQuestion(0);
@@ -1025,14 +1248,15 @@ function startChallenge() {
 }
 
 function showChallengeQuestion(idx) {
-    const q = challengeQuestions[idx];
+    const q     = challengeQuestions[idx];
+    const order = challengeShuffledOrders[idx];
     document.getElementById('ch-progress').textContent = `${idx} / 3`;
     document.getElementById('ch-question').textContent = q.question;
     document.getElementById('ch-result').textContent = '';
     document.getElementById('ch-result').className = '';
     const opts = document.querySelectorAll('.ch-opt');
     opts.forEach((btn, i) => {
-        btn.textContent = q.options[i] || '';
+        btn.textContent = q.options[order[i]] || '';
         btn.className   = 'ch-opt';
         btn.disabled    = false;
     });
@@ -1040,19 +1264,38 @@ function showChallengeQuestion(idx) {
 
 function answerQuestion(idx) {
     if (challengeWaiting) return;
-    const q = challengeQuestions[challengeIdx];
-    const opts = document.querySelectorAll('.ch-opt');
+    const q     = challengeQuestions[challengeIdx];
+    const order = challengeShuffledOrders[challengeIdx];
+    const opts  = document.querySelectorAll('.ch-opt');
     opts.forEach(btn => btn.disabled = true);
-    const correct = idx === q.correctIndex;
+    const correct = order[idx] === q.correctIndex;
     opts[idx].classList.add(correct ? 'correct' : 'wrong');
-    if (!correct) opts[q.correctIndex].classList.add('correct');
+    if (!correct) opts[order.indexOf(q.correctIndex)].classList.add('correct');
 
     if (correct) {
         challengeCorrect++;
+        playQuizCorrectSound();
+        // +10 EXP to all selected animal types; queue level-up effects for after modal closes
+        selectedTypes.forEach((t, si) => {
+            const prevLv = getAnimalLevel(t);
+            animalExp[t] = (animalExp[t] || 0) + 10;
+            const newLv  = getAnimalLevel(t);
+            if (newLv > prevLv) {
+                const lvStr = newLv >= 10 ? 'MAX' : `Lv.${newLv}`;
+                const col = si % 4;
+                const row = Math.floor(si / 4);
+                const fx = BOARD_X + (col * 2 + 1) * CELL_SIZE;
+                const fy = BOARD_Y + (row * 4 + 2) * CELL_SIZE;
+                pendingLevelUpEffects.push({ text: `↑${lvStr} UP↑`, x: fx, y: fy });
+            }
+        });
+        // Track correct-after-wrong for priority system
+        if (quizWrongIds.includes(q.id)) {
+            quizCorrectAfterWrong[q.id] = (quizCorrectAfterWrong[q.id] || 0) + 1;
+        }
         // +3 / +5 / +7 for 1st / 2nd / 3rd correct answer
         const bonusMap  = [3, 5, 7];
         const bonusSecs = bonusMap[challengeCorrect - 1] || 0;
-        // Floating text from answer button → fever bar area
         spawnFloatingText(
             `+${bonusSecs}秒`,
             GAME_W / 2, GAME_H * 0.6,
@@ -1060,6 +1303,9 @@ function answerQuestion(idx) {
         );
         document.getElementById('ch-result').textContent = '✓ 正確！';
     } else {
+        playQuizWrongSound();
+        // Track wrong answer for priority
+        if (!quizWrongIds.includes(q.id)) quizWrongIds.push(q.id);
         document.getElementById('ch-result').textContent = '✗ 答錯了';
     }
 
@@ -1070,6 +1316,8 @@ function answerQuestion(idx) {
             const pRaw = localStorage.getItem(SAVE_KEY + '_progress') || '{}';
             const p = JSON.parse(pRaw);
             p.seenQuizIds = seenQuizIds;
+            p.quizWrongIds = quizWrongIds;
+            p.quizCorrectAfterWrong = quizCorrectAfterWrong;
             localStorage.setItem(SAVE_KEY + '_progress', JSON.stringify(p));
         } catch {}
     }
@@ -1089,6 +1337,15 @@ function answerQuestion(idx) {
 function endChallenge() {
     challengeModal.classList.add('hidden');
     challengeActive = false;
+
+    // 結算衛教挑戰期間累積的升級效果（modal 消失後才顯示）
+    if (pendingLevelUpEffects.length > 0) {
+        pendingLevelUpEffects.forEach(e => {
+            floatingTexts.push({ text: e.text, x: e.x, y: e.y, vy: -55, alpha: 1, scale: 1.7, color: '#ffd700', life: 2.2, fadeStart: 1.0 });
+        });
+        playLevelUpSound();
+        pendingLevelUpEffects = [];
+    }
 
     const feverSeconds = [0, 3, 8, 15][challengeCorrect];
     if (feverSeconds > 0) {
@@ -1157,29 +1414,49 @@ function renderStartScreen() {
 
     ctx.font = '14px sans-serif';
     ctx.fillStyle = '#4a8fa8';
-    ctx.fillText('拯救過勞的阿萬園長', GAME_W / 2, 108);
+    ctx.fillText(getCurrentStrings().subtitle, GAME_W / 2, 108);
 
-    // Decorative animals (first 4 types loaded)
-    const deco = [0, 1, 2, 3];
-    const decoPos = [[60, 140], [280, 140], [40, 220], [300, 220]];
-    deco.forEach((t, i) => {
-        const key = `animal_a_${String(selectedTypes[t] + 1).padStart(2, '0')}`;
+    const cx = GAME_W / 2;
+
+    // Decorative animals — behind R1 (squash & stretch bounce + flip transition)
+    decoAnimals.forEach(a => {
+        const key = `animal_a_${String(selectedTypes[a.typeIdx] + 1).padStart(2, '0')}`;
         const img = ASSET_IMAGES[key];
-        if (img) {
-            const [dx, dy] = decoPos[i];
-            ctx.globalAlpha = 0.55;
-            ctx.drawImage(img, dx - 16, dy - 16, 32, 32);
-            ctx.globalAlpha = 1;
+        if (!img) return;
+
+        // Squash & stretch: bob = -1 (top/stretch) .. +1 (bottom/squash)
+        const bob = Math.sin(totalElapsed / 120 + a.bobOffset); // ~750ms cycle
+        const bobY = bob * 6;       // ±6px vertical
+        const sqX  = 1 + 0.13 * bob;  // wider at bottom
+        const sqY  = 1 - 0.13 * bob;  // shorter at bottom
+
+        // Flip scaleX: 1→0 (phase 1) or 0→1 (phase 2)
+        let flipSX = 1;
+        if (a.flip) {
+            const t = Math.min(1, a.flip.timer / 120);
+            flipSX = a.flip.phase === 1 ? (1 - t) : t;
         }
+
+        ctx.save();
+        ctx.translate(a.x, a.y + bobY);
+        if (a.vx < 0) ctx.scale(-1, 1);
+        ctx.scale(sqX * flipSX, sqY);
+        ctx.drawImage(img, -16, -16, 32, 32);
+        ctx.restore();
     });
+
+    // R1.png logo — 64px, centered, on top of animals
+    const r1img = ASSET_IMAGES['R1'];
+    if (r1img) ctx.drawImage(r1img, cx - 32, 168, 64, 64);
 
     // Buttons (vertical column)
     startButtons = [];
+    const s = getCurrentStrings();
     const btnDefs = [
-        { label: '開始遊戲', action: 'start',    enabled: true },
-        { label: '載入進度', action: 'load',     enabled: hasSavedGame },
-        { label: '（圖鑑）', action: 'library',  enabled: hasPlayedBefore },
-        { label: '（題庫）', action: 'quizbank', enabled: seenQuizIds.length > 0 },
+        { label: s.startGame,                                action: 'start',    enabled: true },
+        { label: s.loadGame,                                 action: 'load',     enabled: true },
+        { label: hasPlayedBefore ? s.library : '???',        action: 'library',  enabled: hasPlayedBefore },
+        { label: seenQuizIds.length > 0 ? s.quizBank : '???', action: 'quizbank', enabled: seenQuizIds.length > 0 },
     ];
 
     const btnW = 200, btnH = 46, btnX = GAME_W / 2 - btnW / 2;
@@ -1202,10 +1479,12 @@ function renderStartScreen() {
         btnY += btnH + 14;
     });
 
-    // Footer hint
+    // Footer hint（兩行）
     ctx.font = '11px sans-serif';
     ctx.fillStyle = '#4a8fa8';
-    ctx.fillText('拖曳方塊交換位置，三個相連即可消除', GAME_W / 2, GAME_H - 30);
+    ctx.fillText(s.footerLine1, GAME_W / 2, GAME_H - 40);
+    ctx.fillText(s.footerLine2, GAME_W / 2, GAME_H - 24);
+
 
     renderFloatingTexts();
 }
@@ -1224,11 +1503,17 @@ function renderLibrary() {
     ctx.font = '13px sans-serif';
     ctx.fillText('← 返回', 40, 28);
 
-    // 4x3 grid of all 12 animals
-    const cols = 4, rows = 3;
-    const cellW = 72, cellH = 80;
+    const ANIMAL_NAMES = [
+        'Matsuko','豹子頭','貓下去','瓦哈哈','花雕雞',
+        '鼠き雅','美兔子','查布朗','帝王謝','狗MAN',
+        '雪倫菈比','喵惠妹','馬鈴鼠'
+    ];
+
+    // 4-col grid (4 rows for 13 animals)
+    const cols  = 4;
+    const cellW = 82, cellH = 95;
     const startX = (GAME_W - cols * cellW) / 2;
-    const startY = 70;
+    const startY = 60;
 
     for (let i = 0; i < NUM_ANIMAL_TYPES; i++) {
         const col = i % cols;
@@ -1236,22 +1521,54 @@ function renderLibrary() {
         const x = startX + col * cellW;
         const y = startY + row * cellH;
         const seen = seenAnimalTypes.includes(i);
-        const key = `animal_a_${String(i + 1).padStart(2, '0')}`;
-        const img = ASSET_IMAGES[key];
+        const key  = `animal_a_${String(i + 1).padStart(2, '0')}`;
+        const img  = ASSET_IMAGES[key];
+        const lv   = getAnimalLevel(i);
+        const isMax = lv >= 10;
 
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        fillRR(ctx, x + 4, y + 4, cellW - 8, cellH - 12, 10);
+        // Card background
+        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        fillRR(ctx, x + 3, y + 3, cellW - 6, cellH - 6, 10);
 
+        // Animal image (32px, y+10) or ?
         if (img && seen) {
-            ctx.drawImage(img, x + cellW / 2 - 16, y + 8, 32, 32);
+            ctx.drawImage(img, x + cellW / 2 - 16, y + 10, 32, 32);
         } else {
             ctx.fillStyle = '#b0ccd8';
-            ctx.font = '20px sans-serif';
-            ctx.fillText('?', x + cellW / 2, y + 28);
+            ctx.font = 'bold 20px sans-serif';
+            ctx.fillText('?', x + cellW / 2, y + 30);
         }
+
+        // Animal name (y+56, image bottom y+42, gap 14px)
         ctx.fillStyle = seen ? '#1a5f7a' : '#aaa';
-        ctx.font = '10px sans-serif';
-        ctx.fillText(`No.${i + 1}`, x + cellW / 2, y + 56);
+        ctx.font = '11px sans-serif';
+        ctx.fillText(seen ? ANIMAL_NAMES[i] : `No.${i + 1}`, x + cellW / 2, y + 56);
+
+        // EXP progress bar (y+67)
+        const barX = x + 8, barY = y + 67, barW = cellW - 16, barH = 6;
+        ctx.fillStyle = 'rgba(180,210,230,0.7)';
+        fillRR(ctx, barX, barY, barW, barH, 3);
+        if (seen) {
+            const exp     = animalExp[i] || 0;
+            const lvStart = expForLevel(lv);
+            const lvEnd   = expForLevel(lv + 1);
+            const pct     = isMax ? 1 : Math.min(1, (exp - lvStart) / (lvEnd - lvStart));
+            const fillW   = barW * pct;
+            if (fillW > 0) {
+                const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+                grad.addColorStop(0, '#42a5f5');
+                grad.addColorStop(1, isMax ? '#ffd700' : '#66bb6a');
+                ctx.fillStyle = grad;
+                if (fillW >= barW - 0.5) fillRR(ctx, barX, barY, fillW, barH, 3);
+                else fillRRLeft(ctx, barX, barY, fillW, barH, 3);
+            }
+        }
+
+        // Level label 壓在進度條上方
+        const lvLabel = isMax ? 'Lv.Max' : `Lv.${lv}`;
+        ctx.font = `bold 9px sans-serif`;
+        ctx.fillStyle = seen ? (isMax ? '#b8860b' : '#1a5f7a') : '#aaa';
+        ctx.fillText(lvLabel, x + cellW / 2, barY + barH + 10);
     }
 
     renderFloatingTexts();
@@ -1259,6 +1576,8 @@ function renderLibrary() {
 
 function renderQuizBank() {
     renderBackground('#c8e9f7', '#d4f0e4');
+
+    // Fixed header
     ctx.textAlign = 'center';
     ctx.font = 'bold 22px sans-serif';
     ctx.fillStyle = '#1a5f7a';
@@ -1270,30 +1589,98 @@ function renderQuizBank() {
     ctx.font = '13px sans-serif';
     ctx.fillText('← 返回', 40, 28);
 
+    // Scrollable content area
+    const HEADER_H  = 60;
+    const FOOTER_H  = 20;
+    const viewTop    = HEADER_H;
+    const viewH      = GAME_H - HEADER_H - FOOTER_H;
+    const contentX   = 16;
+    const contentW   = GAME_W - 32 - 10; // leave 10px for scrollbar
+
     const seen = QUIZ_DATA.filter(q => seenQuizIds.includes(q.id));
+
     if (seen.length === 0) {
         ctx.fillStyle = '#4a8fa8';
         ctx.font = '14px sans-serif';
-        ctx.fillText('完成衛教挑戰後題目會顯示在這裡', GAME_W / 2, 200);
-    } else {
-        ctx.textAlign = 'left';
-        let y = 75;
-        seen.forEach((q, i) => {
-            if (y > GAME_H - 40) return;
-            ctx.fillStyle = '#1a5f7a';
-            ctx.font = 'bold 12px sans-serif';
-            const lines = wrapText(ctx, `Q${i+1}. ${q.question}`, 340);
-            lines.forEach(line => { ctx.fillText(line, 20, y); y += 16; });
-            ctx.fillStyle = '#4caf50';
-            ctx.font = '11px sans-serif';
-            ctx.fillText(`✓ ${q.options[q.correctIndex]}`, 24, y); y += 14;
-            ctx.fillStyle = '#4a8fa8';
-            ctx.font = '11px sans-serif';
-            const expLines = wrapText(ctx, q.explanation, 336);
-            expLines.forEach(line => { ctx.fillText(line, 22, y); y += 14; });
-            y += 8;
-        });
+        ctx.fillText('完成衛教挑戰後題目會顯示在這裡', GAME_W / 2, 220);
+        quizBankMaxScroll = 0;
+        renderFloatingTexts();
+        return;
     }
+
+    // Measure total content height first (dry run)
+    ctx.font = 'bold 12px sans-serif';
+    let totalH = 18; // top padding
+    seen.forEach((q, i) => {
+        const qLines = wrapText(ctx, `Q${i+1}. ${q.question}`, contentW);
+        totalH += qLines.length * 16 + 2;
+        ctx.font = '11px sans-serif';
+        totalH += 15; // answer line
+        const expLines = wrapText(ctx, q.explanation, contentW - 4);
+        totalH += expLines.length * 14 + 10; // gap between entries
+        ctx.font = 'bold 12px sans-serif';
+    });
+    totalH += 12; // bottom padding
+    quizBankMaxScroll = Math.max(0, totalH - viewH);
+    quizBankScrollY   = Math.max(0, Math.min(quizBankScrollY, quizBankMaxScroll));
+
+    // Clip to content viewport
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, viewTop, GAME_W, viewH);
+    ctx.clip();
+
+    // Draw content offset by scroll
+    ctx.translate(0, viewTop - quizBankScrollY);
+    ctx.textAlign = 'left';
+    let y = 18;
+    seen.forEach((q, i) => {
+        ctx.fillStyle = '#1a5f7a';
+        ctx.font = 'bold 12px sans-serif';
+        const qLines = wrapText(ctx, `Q${i+1}. ${q.question}`, contentW);
+        qLines.forEach(line => { ctx.fillText(line, contentX, y); y += 16; });
+        y += 2;
+        ctx.fillStyle = '#4caf50';
+        ctx.font = '11px sans-serif';
+        ctx.fillText(`✓ ${q.options[q.correctIndex]}`, contentX + 4, y); y += 15;
+        ctx.fillStyle = '#4a8fa8';
+        ctx.font = '11px sans-serif';
+        const expLines = wrapText(ctx, q.explanation, contentW - 4);
+        expLines.forEach(line => { ctx.fillText(line, contentX + 2, y); y += 14; });
+        y += 10;
+    });
+
+    ctx.restore();
+
+    // Scrollbar track
+    if (quizBankMaxScroll > 0) {
+        const sbX  = GAME_W - 7;
+        const sbY  = viewTop + 4;
+        const sbH  = viewH - 8;
+        ctx.fillStyle = 'rgba(180,210,230,0.5)';
+        fillRR(ctx, sbX, sbY, 5, sbH, 2);
+        const thumbH   = Math.max(24, sbH * (viewH / totalH));
+        const thumbY   = sbY + (sbH - thumbH) * (quizBankScrollY / quizBankMaxScroll);
+        ctx.fillStyle  = '#5bb8e8';
+        fillRR(ctx, sbX, thumbY, 5, thumbH, 2);
+    }
+
+    // Fade edges (top only when scrolled, bottom always)
+    const fadeH = 18;
+    if (quizBankScrollY > 4) {
+        const fadeTop = ctx.createLinearGradient(0, viewTop, 0, viewTop + fadeH);
+        fadeTop.addColorStop(0, 'rgba(200,233,247,0.9)');
+        fadeTop.addColorStop(1, 'rgba(200,233,247,0)');
+        ctx.fillStyle = fadeTop;
+        ctx.fillRect(0, viewTop, GAME_W, fadeH);
+    }
+
+    const fadeBot = ctx.createLinearGradient(0, GAME_H - FOOTER_H - fadeH, 0, GAME_H - FOOTER_H);
+    fadeBot.addColorStop(0, 'rgba(212,240,228,0)');
+    fadeBot.addColorStop(1, 'rgba(212,240,228,0.9)');
+    ctx.fillStyle = fadeBot;
+    ctx.fillRect(0, GAME_H - FOOTER_H - fadeH, GAME_W, fadeH);
+
     renderFloatingTexts();
 }
 
@@ -1586,14 +1973,47 @@ function renderFeverBar() {
         ctx.fillStyle = `rgb(255,${Math.round(220 + 35 * pulse)},60)`;
         ctx.shadowColor = 'rgba(255,160,0,0.9)';
         ctx.shadowBlur  = 8;
-        ctx.fillText('✨ 點擊觸發！', FEVER_X + FEVER_W / 2, FEVER_Y + FEVER_H / 2 + 4 + bounce);
+        ctx.fillText('✨ READY！', FEVER_X + FEVER_W / 2, FEVER_Y + FEVER_H / 2 + 4 + bounce);
         ctx.shadowBlur = 0;
+
+        // First-time hint: gold border + bouncing ▼ arrow
+        if (!feverHintShown) {
+            const glowPulse = 0.6 + 0.4 * Math.sin(totalElapsed / 200);
+            // Gold border
+            ctx.save();
+            ctx.strokeStyle = `rgba(255,210,30,${glowPulse})`;
+            ctx.lineWidth   = 3;
+            ctx.shadowColor = `rgba(255,180,0,${glowPulse})`;
+            ctx.shadowBlur  = 12;
+            const br = FEVER_H / 2 + 3;
+            const bx = FEVER_X - 3, by = FEVER_Y - 3, bw = FEVER_W + 6, bh = FEVER_H + 6;
+            ctx.beginPath();
+            ctx.moveTo(bx + br, by);
+            ctx.lineTo(bx + bw - br, by);
+            ctx.arcTo(bx + bw, by,      bx + bw, by + br,      br);
+            ctx.lineTo(bx + bw, by + bh - br);
+            ctx.arcTo(bx + bw, by + bh, bx + bw - br, by + bh, br);
+            ctx.lineTo(bx + br, by + bh);
+            ctx.arcTo(bx,       by + bh, bx,       by + bh - br, br);
+            ctx.lineTo(bx, by + br);
+            ctx.arcTo(bx,       by,      bx + br,  by,           br);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
+            // Bouncing ▼ arrow
+            const arrowBob = Math.sin(totalElapsed / 260) * 5;
+            ctx.font        = 'bold 22px sans-serif';
+            ctx.fillStyle   = '#ffd700';
+            ctx.shadowColor = 'rgba(255,180,0,0.9)';
+            ctx.shadowBlur  = 10;
+            ctx.fillText('▼', FEVER_X + FEVER_W / 2, FEVER_Y - 8 + arrowBob);
+            ctx.shadowBlur  = 0;
+        }
     } else {
         ctx.fillStyle = 'rgba(255,255,255,0.95)';
         ctx.font = 'bold 11px sans-serif';
-        const label = isFeverTime
-            ? `FEVER! ${Math.ceil(feverTimeLeft)}s`
-            : `FEVER ${feverBar}/${FEVER_MAX}`;
+        // Item 6: removed ?/10 counter; just show FEVER or FEVER! Ns
+        const label = isFeverTime ? `FEVER！${Math.ceil(feverTimeLeft)}s` : 'FEVER';
         ctx.fillText(label, FEVER_X + FEVER_W / 2, FEVER_Y + FEVER_H / 2 + 4);
     }
 }
@@ -1676,10 +2096,11 @@ function renderGameOverOverlay() {
 
     // Three buttons: 再玩一次 / 分享 / 儲存圖片
     gameOverButtons = [];
+    const gs = getCurrentStrings();
     const btnDefs = [
-        { label: '再玩一次', action: 'retry',  color: '#3a9ed4', hover: '#5bb8e8' },
-        { label: '分享',     action: 'share',  color: '#3a9e6a', hover: '#4caf80' },
-        { label: '儲存圖片', action: 'save',   color: '#7060c8', hover: '#8878e8' },
+        { label: gs.retry,   action: 'retry',  color: '#3a9ed4', hover: '#5bb8e8' },
+        { label: gs.share,   action: 'share',  color: '#3a9e6a', hover: '#4caf80' },
+        { label: gs.saveImg, action: 'save',   color: '#7060c8', hover: '#8878e8' },
     ];
     const btnW = 88, btnH = 44, gap = 12;
     const totalBtnW = btnDefs.length * btnW + (btnDefs.length - 1) * gap;
@@ -1774,7 +2195,31 @@ function init() {
     }
     selectedTypes = pool.slice(0, ACTIVE_TYPES);
 
+    initDecoAnimals();
     startLoop();
+
+    // 顯示聲音詢問視窗（使用者點擊即授權瀏覽器播音）
+    document.getElementById('sound-prompt').classList.remove('hidden');
+}
+
+function pickUniqueDecoType(excludeAnimal) {
+    const used = new Set(decoAnimals.map(a => a !== excludeAnimal ? (a.flip?.nextTypeIdx ?? a.typeIdx) : -1));
+    const available = [];
+    for (let i = 0; i < ACTIVE_TYPES; i++) { if (!used.has(i)) available.push(i); }
+    return available.length > 0 ? available[Math.floor(Math.random() * available.length)] : Math.floor(Math.random() * ACTIVE_TYPES);
+}
+
+function initDecoAnimals() {
+    const cx = GAME_W / 2;
+    const startPos = [
+        [cx - 130, 148], [cx + 130, 148],
+        [cx - 130, 255], [cx + 130, 255],
+    ];
+    decoAnimals = startPos.map(([x, y], i) => {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 55 + Math.random() * 35;
+        return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, typeIdx: i, bobOffset: i * Math.PI / 2, flip: null };
+    });
 }
 
 function update(dt) {
@@ -1782,6 +2227,36 @@ function update(dt) {
 
     if (gameScreen === 'start') {
         updateFloatingTexts(dt);
+        // 移動封面動物（含翻牌換人動畫）
+        const DECO_L = 46, DECO_R = GAME_W - 46, DECO_T = 120, DECO_B = 268;
+        const FLIP_HALF = 120; // ms per half of flip
+        decoAnimals.forEach(a => {
+            a.x += a.vx * dt / 1000;
+            a.y += a.vy * dt / 1000;
+
+            // 推進翻牌動畫
+            if (a.flip) {
+                a.flip.timer += dt;
+                if (a.flip.phase === 1 && a.flip.timer >= FLIP_HALF) {
+                    a.typeIdx = a.flip.nextTypeIdx;
+                    a.flip = { phase: 2, timer: a.flip.timer - FLIP_HALF };
+                }
+                if (a.flip && a.flip.phase === 2 && a.flip.timer >= FLIP_HALF) {
+                    a.flip = null;
+                }
+            }
+
+            // 碰壁：反向 + 啟動翻牌（若目前沒在翻）
+            if (a.x < DECO_L) {
+                a.x = DECO_L; a.vx = Math.abs(a.vx);
+                if (!a.flip) a.flip = { phase: 1, timer: 0, nextTypeIdx: pickUniqueDecoType(a) };
+            } else if (a.x > DECO_R) {
+                a.x = DECO_R; a.vx = -Math.abs(a.vx);
+                if (!a.flip) a.flip = { phase: 1, timer: 0, nextTypeIdx: pickUniqueDecoType(a) };
+            }
+            if (a.y < DECO_T) { a.y = DECO_T; a.vy = Math.abs(a.vy); }
+            else if (a.y > DECO_B) { a.y = DECO_B; a.vy = -Math.abs(a.vy); }
+        });
         return;
     }
     if (gameScreen === 'library' || gameScreen === 'quizbank') {
@@ -1847,10 +2322,10 @@ function update(dt) {
         return;
     }
 
-    // Countdown shake: tiles jitter when ≤ 5s left (quadratic — barely noticeable at start)
-    if (timeLeft <= 5 && !isFeverTime) {
+    // Countdown shake: tiles jitter when main timer ≤ 5s (applies even during fever time)
+    if (timeLeft <= 5) {
         const t   = Math.max(0, (5 - timeLeft) / 5); // 0 → 1
-        const mag = t * t * 10;                       // 0 → 10px (accelerates near end)
+        const mag = t * t * 5;                        // 0 → 5px (reduced amplitude)
         if (mag > 0.05) {
             for (let r = 0; r < BOARD_SIZE; r++) {
                 for (let c = 0; c < BOARD_SIZE; c++) {
@@ -1862,7 +2337,7 @@ function update(dt) {
                 }
             }
         }
-    } else if (isFeverTime) {
+    } else {
         for (let r = 0; r < BOARD_SIZE; r++)
             for (let c = 0; c < BOARD_SIZE; c++)
                 if (sprites[r][c]) { sprites[r][c].shakeX = 0; sprites[r][c].shakeY = 0; }
@@ -1923,7 +2398,8 @@ function startGame() {
     gameFooter.classList.add('hidden');
     uiLayer.classList.remove('hidden');
 
-    if (bgmVolume > 0) bgm.play().catch(() => {});
+    // BGM 已從首次互動開始播放；若因某原因暫停，重新啟動
+    if (bgmVolume > 0 && bgm.paused) bgm.play().catch(() => {});
 }
 
 function resetGame() {
@@ -1947,6 +2423,12 @@ function resetGame() {
     document.getElementById('confirm-reset-modal').classList.add('hidden');
     floatingTexts = [];
     particles     = [];
+    // 停 GameOver 音樂，回首頁恢復 BGM
+    gameOverBgm.pause(); gameOverBgm.currentTime = 0;
+    if (bgmVolume > 0 && bgm.paused && !isFeverTime) {
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        bgm.play().catch(() => {});
+    }
 }
 
 function handleGameOverButton(action) {
@@ -1999,7 +2481,15 @@ function endGame() {
     isPlaying  = false;
     gameScreen = 'gameover';
     updateUIForScreen();
+    // 停止所有背景音樂，播放爆炸音效 + GameOver 音樂
     bgm.pause();
+    feverBgm.pause(); feverBgm.currentTime = 0;
+    isFeverTime = false; feverIntroActive = false;
+    playGameOverExplosion();
+    if (bgmVolume > 0) {
+        gameOverBgm.currentTime = 0;
+        gameOverBgm.play().catch(() => {});
+    }
 
     hasPlayedBefore = true;
     selectedTypes.forEach(t => { if (!seenAnimalTypes.includes(t)) seenAnimalTypes.push(t); });
@@ -2008,6 +2498,10 @@ function endGame() {
     try {
         localStorage.setItem(SAVE_KEY + '_progress', JSON.stringify({
             hasPlayedBefore, seenAnimalTypes, seenQuizIds, isChallengeEnabled,
+            animalExp: { ...animalExp },
+            quizWrongIds: [...quizWrongIds],
+            quizCorrectAfterWrong: { ...quizCorrectAfterWrong },
+            feverHintShown,
         }));
     } catch {}
     localStorage.removeItem(SAVE_KEY);
@@ -2038,6 +2532,9 @@ function endGame() {
 // INPUT — POINTER EVENTS
 // ============================================================
 document.addEventListener('pointerdown', (e) => {
+    // Block if sound prompt is visible — buttons handle their own audio init
+    if (!document.getElementById('sound-prompt').classList.contains('hidden')) return;
+
     initAudioContext();
 
     // Block if modals are open
@@ -2059,13 +2556,12 @@ document.addEventListener('pointerdown', (e) => {
                 if (btn.action === 'start') {
                     startGame();
                 } else if (btn.action === 'load') {
-                    if (!loadAndApplySave()) {
-                        spawnFloatingText('無存檔', GAME_W / 2, 350, '#ff6b6b', 1.3);
-                    }
+                    document.getElementById('upload-save-input').click();
                 } else if (btn.action === 'library') {
                     gameScreen = 'library';
                     updateUIForScreen();
                 } else if (btn.action === 'quizbank') {
+                    quizBankScrollY = 0;
                     gameScreen = 'quizbank';
                     updateUIForScreen();
                 }
@@ -2080,6 +2576,8 @@ document.addEventListener('pointerdown', (e) => {
         if (pos.x >= 10 && pos.x <= 70 && pos.y >= 10 && pos.y <= 38) {
             gameScreen = 'start';
             updateUIForScreen();
+        } else if (gameScreen === 'quizbank') {
+            dragStart = { x: pos.x, y: pos.y }; // track for scroll drag
         }
         return;
     }
@@ -2122,6 +2620,17 @@ document.addEventListener('pointermove', (e) => {
         return;
     }
 
+    // Quizbank touch scroll
+    if (gameScreen === 'quizbank') {
+        if (dragStart) {
+            const pos = getCanvasPos(e);
+            const dy = dragStart.y - pos.y;
+            quizBankScrollY = Math.max(0, Math.min(quizBankMaxScroll, quizBankScrollY + dy));
+            dragStart.y = pos.y;
+        }
+        return;
+    }
+
     if (gameScreen !== 'playing' || isGameOver || challengeActive) return;
     if (!dragStart || phase !== PHASE.IDLE) return;
 
@@ -2148,18 +2657,46 @@ document.addEventListener('pointerup', (e) => {
     }
 });
 
+document.addEventListener('wheel', (e) => {
+    if (gameScreen === 'quizbank') {
+        e.preventDefault();
+        quizBankScrollY = Math.max(0, Math.min(quizBankMaxScroll, quizBankScrollY + e.deltaY * 0.6));
+    }
+}, { passive: false });
+
 // ============================================================
 // TAB VISIBILITY — AUTO MUTE + AUTO SAVE
 // ============================================================
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-        if (isAutoMuteEnabled) bgm.pause();
+        if (isAutoMuteEnabled) { bgm.pause(); feverBgm.pause(); gameOverBgm.pause(); }
         saveGameState();
     } else {
         lastTime = performance.now();
         if (audioCtx?.state === 'suspended') audioCtx.resume();
-        if (isAutoMuteEnabled && isPlaying && bgmVolume > 0) bgm.play().catch(() => {});
+        if (isAutoMuteEnabled && bgmVolume > 0) {
+            if (isFeverTime) feverBgm.play().catch(() => {});
+            else if (isGameOver) gameOverBgm.play().catch(() => {});
+            else bgm.play().catch(() => {});
+        }
     }
+});
+
+// ============================================================
+// SOUND PERMISSION PROMPT
+// ============================================================
+document.getElementById('sound-yes-btn').addEventListener('click', () => {
+    document.getElementById('sound-prompt').classList.add('hidden');
+    bgmVolume = 0.5; sfxVolume = 0.5;
+    bgmSlider.value = 50; sfxSlider.value = 50;
+    initAudioContext();   // 此點擊即是授權手勢，BGM 在 initAudioContext 裡播放
+});
+
+document.getElementById('sound-no-btn').addEventListener('click', () => {
+    document.getElementById('sound-prompt').classList.add('hidden');
+    bgmVolume = 0; sfxVolume = 0;
+    bgmSlider.value = 0; sfxSlider.value = 0;
+    initAudioContext(); // 建立 GainNode 路由，確保所有音訊以 gain=0 輸出達成靜音
 });
 
 // ============================================================
@@ -2176,19 +2713,34 @@ document.getElementById('close-settings').addEventListener('click', () => {
     settingsModal.classList.add('hidden');
     settingsModal.style.display = 'none';
     isPaused = false;
-    if (bgm.paused && bgmVolume > 0 && isPlaying) bgm.play().catch(() => {});
+    if (bgm.paused && bgmVolume > 0 && !isFeverTime) {
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        bgm.play().catch(() => {});
+    }
 });
 
 bgmSlider.addEventListener('input', (e) => {
     bgmVolume = e.target.value / 100;
     if (bgmGainNode) bgmGainNode.gain.setTargetAtTime(bgmVolume, audioCtx.currentTime, 0.01);
     else bgm.volume = bgmVolume;
-    if (bgmVolume > 0 && bgm.paused && isPlaying) bgm.play().catch(() => {});
+    if (bgmVolume > 0 && bgm.paused && !isFeverTime) {
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        bgm.play().catch(() => {});
+    } else if (bgmVolume === 0) {
+        bgm.pause();
+    }
 });
 
+let _sfxPreviewTimer = null;
 sfxSlider.addEventListener('input', (e) => {
     sfxVolume = e.target.value / 100;
     if (sfxGainNode) sfxGainNode.gain.setTargetAtTime(sfxVolume, audioCtx.currentTime, 0.01);
+    // 拖動時試聽（debounce 80ms 避免連發）
+    clearTimeout(_sfxPreviewTimer);
+    _sfxPreviewTimer = setTimeout(() => {
+        if (!audioCtx) initAudioContext();
+        playSynth('sine', 880, 0.2, 0.6);
+    }, 80);
 });
 
 document.getElementById('auto-mute-toggle').addEventListener('change', (e) => {

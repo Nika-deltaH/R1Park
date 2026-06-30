@@ -12,13 +12,13 @@
     <meta name="theme-color" content="#5bb8e8">
 
     <meta property="og:title" content="阿萬動物樂園">
-    <meta property="og:description" content="動物保育主題三消益智遊戲，挑戰衛教知識獲得更多時間！">
+    <meta property="og:description" content="動物朋友們的消消樂益智遊戲，挑戰衛教知識獲得更多加分！">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://example.com/zookeeper/">
     <meta property="og:image" content="https://example.com/zookeeper/assets/banner.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="阿萬動物樂園">
-    <meta name="twitter:description" content="動物保育主題三消益智遊戲，挑戰衛教知識獲得更多時間！">
+    <meta name="twitter:description" content="動物朋友們的消消樂益智遊戲，挑戰衛教知識獲得更多加分！">
     <meta name="twitter:image" content="https://example.com/zookeeper/assets/banner.png">
 
     <link rel="stylesheet" href="style.css">
@@ -105,8 +105,8 @@
                         <label data-i18n="quizChallenge">開啟衛教挑戰</label>
                         <input type="checkbox" id="quiz-toggle" checked>
                     </div>
-                    <div style="font-size:11px;color:var(--color-text-muted);padding:0 10px;text-align:left;margin-top:4px">
-                        關閉後 Fever 固定5秒，直接觸發不跳題目
+                    <div data-i18n="quizHint" style="font-size:11px;color:var(--color-text-muted);padding:0 10px;text-align:left;margin-top:4px">
+                        關閉後 Fever Time 固定為5秒
                     </div>
                 </div>
 
@@ -122,10 +122,25 @@
 
                 <!-- Credits -->
                 <div class="setting-item support-section">
-                    <p>製作　Nika</p>
+                    <p><span data-i18n="creditsLabel">製作‧美術</span>　NIKA</p>
+                    <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+                        <a href="https://x.com/nikaworx" target="_blank" class="settings-action-btn" style="text-decoration:none" data-i18n="contactNIKA">聯絡 NIKA</a>
+                        <a href="https://p.ecpay.com.tw/4D5B9BD" target="_blank" class="settings-action-btn" style="text-decoration:none" data-i18n="supportNIKA">贊助 NIKA</a>
+                    </div>
                 </div>
 
                 <button id="close-settings" data-i18n="closeSettings">關閉</button>
+            </div>
+        </div>
+
+        <!-- Sound Permission Prompt -->
+        <div id="sound-prompt" class="hidden">
+            <div class="sound-prompt-box">
+                <p data-i18n="soundPromptTitle">開啟聲音？</p>
+                <div class="sound-prompt-btns">
+                    <button id="sound-no-btn" data-i18n="soundNo">否</button>
+                    <button id="sound-yes-btn" data-i18n="soundYes">是</button>
+                </div>
             </div>
         </div>
 

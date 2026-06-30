@@ -112,6 +112,7 @@ body {
     display: flex;
     gap: 6px;
     pointer-events: all;
+    margin-left: auto;
 }
 
 .top-controls button {
@@ -422,6 +423,63 @@ body {
 }
 
 /* ============================================================
+   Sound Permission Prompt
+   ============================================================ */
+#sound-prompt {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 60;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(6px);
+    animation: fadeIn 0.25s ease-out;
+}
+
+.sound-prompt-box {
+    background: rgba(255,255,255,0.97);
+    border-radius: 20px;
+    padding: 28px 24px 22px;
+    width: 72%;
+    max-width: 240px;
+    text-align: center;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.25);
+}
+
+.sound-prompt-icon {
+    font-size: 36px;
+    margin-bottom: 10px;
+}
+
+.sound-prompt-box p {
+    color: var(--color-text);
+    font-size: 16px;
+    font-weight: bold;
+    margin: 0 0 18px;
+}
+
+.sound-prompt-btns {
+    display: flex;
+    gap: 10px;
+}
+
+.sound-prompt-btns button {
+    flex: 1;
+    padding: 10px 0;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+#sound-no-btn  { background: #e0e0e0; color: #666; }
+#sound-yes-btn { background: var(--color-primary); color: white; }
+.sound-prompt-btns button:hover { opacity: 0.85; }
+
+/* ============================================================
    Confirm Reset Modal
    ============================================================ */
 #confirm-reset-modal {
@@ -605,6 +663,7 @@ body {
     margin-bottom: 14px;
     font-weight: bold;
     min-height: 42px;
+    text-align: left;
 }
 
 #ch-options {

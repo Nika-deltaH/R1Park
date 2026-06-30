@@ -1,0 +1,14 @@
+{
+    "name": "阿萬動物樂園",
+    "short_name": "R1 Park",
+    "description": "動物朋友們的消消樂益智遊戲，挑戰衛教知識獲得更多加分！",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#d4edf7",
+    "theme_color": "#5bb8e8",
+    "start_url": "./",
+    "icons": [
+        { "src": "assets/icon.png", "sizes": "192x192", "type": "image/png" },
+        { "src": "assets/icon.png", "sizes": "512x512", "type": "image/png" }
+    ]
+}

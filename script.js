@@ -6,6 +6,8 @@ const GAME_H = 680;
 const SAVE_KEY = 'ZookeeperR1_save';
 const GAME_TITLE = '阿萬動物樂園';
 const GAME_URL = 'https://example.com/zookeeper/';
+const SUPPORT_URL_ZH    = 'https://p.ecpay.com.tw/4D5B9BD';
+const SUPPORT_URL_OTHER = 'https://ko-fi.com/nikaworx';
 
 // ============================================================
 // GAME CONSTANTS
@@ -116,7 +118,7 @@ const STRINGS = {
         soundPromptTitle: 'サウンドを有効にする？', soundYes: 'はい', soundNo: 'いいえ',
         quizHint: 'オフ時 Fever Timeは5秒固定',
         contactNIKA: 'お問い合わせ', supportNIKA: 'NIKAを応援',
-        creditsLabel: '制作・アート',
+        creditsLabel: '制作・美術',
     },
 };
 
@@ -139,6 +141,12 @@ function applyLanguage(lang) {
         const key = el.getAttribute('data-i18n');
         if (s[key] !== undefined) el.textContent = s[key];
     });
+    // 贊助連結依語言切換 URL（ZH 用台灣綠界，其他用 Ko-fi）
+    const supportEl = document.querySelector('[data-i18n="supportNIKA"]');
+    if (supportEl && supportEl.tagName === 'A') {
+        const resolved = lang === 'auto' ? detectLang() : lang;
+        supportEl.href = resolved === 'zh' ? SUPPORT_URL_ZH : SUPPORT_URL_OTHER;
+    }
     const sel = document.getElementById('lang-select');
     if (sel) sel.value = lang;
     localStorage.setItem(SAVE_KEY + '_lang', lang);
@@ -1080,6 +1088,10 @@ function updatePhase(dt) {
                 phaseTimer = 0;
             } else {
                 comboCount = 0;
+                // Snap all sprites to exact grid positions before going IDLE
+                for (let r = 0; r < BOARD_SIZE; r++)
+                    for (let c = 0; c < BOARD_SIZE; c++)
+                        if (sprites[r][c]) sprites[r][c].visualRow = r;
                 phase      = PHASE.IDLE;
                 // Check deadlock: show hint text then rain tiles from above
                 if (!hasValidMove()) {
@@ -2151,7 +2163,7 @@ function startLoop() {
 }
 
 function gameLoop(timestamp) {
-    const dt = Math.min(timestamp - lastTime, 100); // cap dt to avoid huge jumps
+    const dt = Math.max(0, Math.min(timestamp - lastTime, 100)); // clamp dt: no negatives, no huge jumps
     lastTime = timestamp;
     if (!isPaused && (!isGameOver || isLaunching || gameOverAlpha < 1)) {
         update(dt);

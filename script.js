@@ -207,6 +207,7 @@ let challengeTimer      = 0;
 let challengeTotalTime  = 15;
 let challengeCorrect    = 0;
 let challengeWaiting    = false; // waiting before showing next question
+let challengeOpenTime   = 0;    // timestamp when challenge modal opened (for touch bleed guard)
 
 // Input
 let hoverTile    = null;   // {r,c}
@@ -1180,6 +1181,7 @@ function startChallenge() {
     feverBarFull    = false;
     feverBar        = 0;
     challengeActive = true;
+    challengeOpenTime = Date.now();
     challengeIdx    = 0;
     challengeCorrect = 0;
     challengeTimer  = challengeTotalTime;
@@ -1264,6 +1266,7 @@ function showChallengeQuestion(idx) {
 
 function answerQuestion(idx) {
     if (challengeWaiting) return;
+    if (Date.now() - challengeOpenTime < 400) return; // 防止按Fever條的觸控穿透到選項
     const q     = challengeQuestions[challengeIdx];
     const order = challengeShuffledOrders[challengeIdx];
     const opts  = document.querySelectorAll('.ch-opt');
